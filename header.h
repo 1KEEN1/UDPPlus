@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #define MAX_PACKET_SIZE 1400
+#define SERVER_PORT 8080
 
 typedef struct {
   __be16 source;  // Port of the source
