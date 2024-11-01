@@ -1,8 +1,11 @@
+#ifndef HEADER_H
+#define HEADER_H
+
 #include <arpa/inet.h>
 #include <errno.h>
-#include <iostream>
 #include <linux/types.h>
 #include <netinet/in.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -19,3 +22,5 @@ typedef struct {
   __be16 data_length;
   uint8_t data[MAX_PACKET_SIZE];
 } Header;
+
+#endif // HEADER_H
