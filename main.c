@@ -15,5 +15,12 @@ int main() {
   servaddr.sin_port = htons(SERVER_PORT);
   servaddr.sin_addr.s_addr = INADDR_ANY;
 
+  // Bind the socket to the server address
+  if (bind(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+    perror("Bind FAILED!");
+    close(sockfd);
+    return 1;
+  }
+
   return 0;
 }
