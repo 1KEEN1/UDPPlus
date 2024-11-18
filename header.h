@@ -21,6 +21,7 @@ typedef struct {
   uint8_t flags;
   __be16 checksum;
   __be16 data_length;
+  uint8_t fragment_number;
   uint8_t data[MAX_PACKET_SIZE];
 } Header;
 
