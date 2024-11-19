@@ -35,6 +35,19 @@ int receive_packet(int socket, Header *header, struct sockaddr_in *src_addr) {
   return 0;
 }
 
+void process_packet(Header *header) {
+  uint32_t seq_number = ntohl(header->seq);
+  uint8_t fragment_number = header->fragment_number;
+
+  printf("Received packet:\n");
+  printf("  Source Port: %d\n", ntohs(header->source));
+  printf("  Dest Port: %d\n", ntohs(header->dest));
+  printf("  Sequence Number: %d\n", seq_number);
+  printf("  Fragment Number: %d\n", fragment_number);
+  printf("  Data Length: %d\n", ntohs(header->data_length));
+  printf("  Data: %.*s\n", ntohs(header-data_length), header->data);
+}
+
 int main() {
   // Initialization of RAW socket for the implementation over UDP
   int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
