@@ -18,6 +18,23 @@ uint16_t calculate_checksum(Header *header) {
   return ~sum;
 }
 
+int receive_packet(int socket, Header *header, struct sockaddr_in *src_addr) {
+  socklen_t addr_len = sizeof(*src_addr);
+  ssize_t received_len = recvfrom(socket, header, sizeof(Header), 0, (struct sockaddr *)src_addr, &addr_len);
+
+  if (received_len <= 0) {
+    perror("Packet receiving error!");
+    return -1;
+  }
+
+  if (header->checksum != calculate_checksum(header)) {
+    printf("Checksum error!\n");
+    return -1;
+  }
+
+  return 0;
+}
+
 int main() {
   // Initialization of RAW socket for the implementation over UDP
   int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
