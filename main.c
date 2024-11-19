@@ -70,5 +70,17 @@ int main() {
     return 1;
   }
 
+  printf("Server is listening on port %d\n", SERVER_PORT);
+
+  while (1) {
+    Header header;
+    struct sockaddr_in client_addr;
+
+    if (receive_packet(sockfd, &header, &client_addr) == 0) {
+      process_packet(&header);
+    }
+  }
+
+  close(sockfd);
   return 0;
 }
