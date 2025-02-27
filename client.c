@@ -1,11 +1,6 @@
 #include "header.h"
 #include "func.h"
 
-void send_packet(int socket, struct sockaddr_in *dest_addr, Header *header) {
-  header->checksum = calculate_checksum(header);
-  sendto(socket, header, sizeof(Header), 0, (struct sockaddr *)dest_addr, sizeof(*dest_addr));
-}
-
 int main() {
   // Initialization of RAW socket for the implementation over UDP
   int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
