@@ -1,4 +1,3 @@
-#include "header.h"
 #include "func.h"
 
 int main() {
@@ -28,7 +27,7 @@ int main() {
   header.fragment_number = 0;
   memcpy(header.data, "Hello", 5); // Data
 
-  //Sending the packet
+  // Sending the packet
   send_packet(sockfd, &servaddr, &header);
 
   printf("Packet sent to server.\n");
