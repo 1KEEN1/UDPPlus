@@ -1,20 +1,5 @@
 #include "header.h"
-
-uint16_t calculate_checksum(Header *header) {
-  uint32_t sum = 0;
-  uint16_t *ptr = (uint16_t *)header;
-  size_t header_len = sizeof(Header) / 2;
-
-  for (size_t i = 0; i < header_len; i++) {
-    sum += *ptr++;
-  }
-
-  while (sum >> 16) {
-    sum = (sum & 0xFFFF) + (sum >> 16);
-  }
-
-  return ~sum;
-}
+#include "func.h"
 
 void send_packet(int socket, struct sockaddr_in *dest_addr, Header *header) {
   header->checksum = calculate_checksum(header);
