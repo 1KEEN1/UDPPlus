@@ -17,3 +17,8 @@ uint16_t calculate_checksum(Header *header) {
   // Inverting the sum to increase the probability of detecting errors.
   return ~sum;
 }
+
+void send_packet(int socket, struct sockaddr_in *dest_addr, Header *header) {
+  header->checksum = calculate_checksum(header);
+  sendto(socket, header, sizeof(Header), 0, (struct sockaddr *)dest_addr, sizeof(*dest_addr));
+}
