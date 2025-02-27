@@ -13,7 +13,7 @@ int main() {
   // Initialization data of the server
   servaddr.sin_family = AF_INET;
   servaddr.sin_port = htons(SERVER_PORT);
-  servaddr.sin_addr.s_addr = INADDR_ANY; // For now it's any address
+  servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
   // Creating the Header of the packet
   Header header;
