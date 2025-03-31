@@ -1,36 +1,110 @@
 #include "func.h"
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 
 int main() {
-  // Initialization of RAW socket for the implementation over UDP
-  int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
+  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
-    perror("Socket initialization error!");
+    perror("Socket error");
     return 1;
   }
 
-  struct sockaddr_in servaddr;
-  memset(&servaddr, 0, sizeof(servaddr));
-  // Initialization data of the server
-  servaddr.sin_family = AF_INET;
-  servaddr.sin_port = htons(SERVER_PORT);
-  servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+  struct sockaddr_in serv_addr = {0};
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_port = htons(SERVER_PORT);
+  serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-  // Creating the Header of the packet
-  Header header;
-  memset(&header, 0, sizeof(header));
-  header.source = htons(12345); // Test port
-  header.dest = htons(SERVER_PORT);
-  header.seq = htonl(1); // First packet
-  header.ack_seq = htonl(0);
-  header.flags = 0;
-  header.data_length = htons(5);
-  header.fragment_number = 0;
-  memcpy(header.data, "Hello", 5); // Data
+  // Connection
+  MyTransportHeader syn_pkt = {0};
+  syn_pkt.flags = FLAG_SYN;
+  syn_pkt.seq = htonl(12345);
+  syn_pkt.checksum = calculate_checksum(&syn_pkt);
 
-  // Sending the packet
-  send_packet(sockfd, &servaddr, &header);
+  if (sendto(sockfd, &syn_pkt, sizeof(syn_pkt), 0,
+             (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+    perror("Failed to send SYN");
+    close(sockfd);
+    return 1;
+  }
 
-  printf("Packet sent to server.\n");
+  // Wait SYN-ACK
+  MyTransportHeader syn_ack;
+  socklen_t addr_len = sizeof(serv_addr);
+  if (recvfrom(sockfd, &syn_ack, sizeof(syn_ack), 0,
+               (struct sockaddr *)&serv_addr, &addr_len) <= 0) {
+    perror("Failed to receive SYN-ACK");
+    close(sockfd);
+    return 1;
+  }
+
+  // Check for checksum
+  uint16_t received_checksum = syn_ack.checksum;
+  syn_ack.checksum = 0;
+  if (received_checksum != calculate_checksum(&syn_ack)) {
+    printf("SYN-ACK checksum mismatch!\n");
+    close(sockfd);
+    return 1;
+  }
+  syn_ack.checksum = received_checksum;
+
+  // Send ACK
+  MyTransportHeader ack_pkt = {0};
+  ack_pkt.flags = FLAG_ACK;
+  ack_pkt.ack = syn_ack.seq + 1;
+  ack_pkt.checksum = calculate_checksum(&ack_pkt);
+
+  if (sendto(sockfd, &ack_pkt, sizeof(ack_pkt), 0,
+             (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+    perror("Failed to send ACK");
+    close(sockfd);
+    return 1;
+  }
+
+  // Send data
+  const char *message = "Hello, custom protocol!";
+  MyTransportHeader data_pkt = {0};
+  data_pkt.flags = FLAG_DATA;
+  data_pkt.seq = htonl(12346);
+  data_pkt.data_len = htons(strlen(message));
+  memcpy(data_pkt.data, message, strlen(message));
+  data_pkt.checksum = calculate_checksum(&data_pkt);
+
+  if (sendto(sockfd, &data_pkt, sizeof(data_pkt), 0,
+             (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+    perror("Failed to send data");
+    close(sockfd);
+    return 1;
+  }
+
+  // Wait for ACK
+  MyTransportHeader data_ack;
+  if (recvfrom(sockfd, &data_ack, sizeof(data_ack), 0,
+               (struct sockaddr *)&serv_addr, &addr_len) <= 0) {
+    perror("Failed to receive DATA ACK");
+    close(sockfd);
+    return 1;
+  }
+
+  // Check for checksum
+  received_checksum = data_ack.checksum;
+  data_ack.checksum = 0;
+  if (received_checksum != calculate_checksum(&data_ack)) {
+    printf("DATA ACK checksum mismatch!\n");
+    close(sockfd);
+    return 1;
+  }
+
+  printf("Data sent and acknowledged!\n");
+
+  // Close the connection
+  MyTransportHeader fin_pkt = {0};
+  fin_pkt.flags = FLAG_FIN;
+  fin_pkt.checksum = calculate_checksum(&fin_pkt);
+
+  sendto(sockfd, &fin_pkt, sizeof(fin_pkt), 0, (struct sockaddr *)&serv_addr,
+         sizeof(serv_addr));
 
   close(sockfd);
   return 0;
