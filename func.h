@@ -3,9 +3,14 @@
 
 #include "header.h"
 
-uint16_t calculate_checksum(Header *header);
-void send_packet(int socket, struct sockaddr_in *dest_addr, Header *header);
-int receive_packet(int socket, Header *header, struct sockaddr_in *src_addr);
-void process_packet(Header *header);
+// 3-way handshake
+int establish_connection(int sockfd, struct sockaddr_in *addr);
+
+int send_reliable_data(int sockfd, struct sockaddr_in *addr, const void *data,
+                       size_t len);
+
+void close_connection(int sockfd, struct sockaddr_in *addr);
+
+uint16_t calculate_checksum(const MyTransportHeader *header);
 
 #endif // FUNC_H

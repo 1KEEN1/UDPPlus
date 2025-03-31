@@ -1,57 +1,97 @@
 #include "func.h"
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 
-uint16_t calculate_checksum(Header *header) {
-  header->checksum = 0;
+uint16_t calculate_checksum(const MyTransportHeader *header) {
   uint32_t sum = 0;
-  uint16_t *ptr = (uint16_t *)header;
-  size_t header_len = sizeof(Header) / 2;
+  const uint16_t *ptr = (const uint16_t *)header;
+  size_t len = sizeof(MyTransportHeader);
 
-  for (size_t i = 0; i < header_len; i++) {
-    sum += *ptr++;
+  // Skip checksum (so that it will not affect on calculations)
+  for (size_t i = 0; i < len / 2; i++) {
+    if (i == 4)
+      continue; // Skip checksum
+    sum += ptr[i];
   }
 
-  // Collapsing the sum so that doesn't be over the limit
+  if (len % 2) {
+    sum += ((const uint8_t *)ptr)[len - 1];
+  }
+
   while (sum >> 16) {
     sum = (sum & 0xFFFF) + (sum >> 16);
   }
 
-  // Inverting the sum to increase the probability of detecting errors.
-  return ~sum;
+  return ~(uint16_t)sum;
 }
 
-void send_packet(int socket, struct sockaddr_in *dest_addr, Header *header) {
-  header->checksum = calculate_checksum(header);
-  sendto(socket, header, sizeof(Header), 0, (struct sockaddr *)dest_addr,
-         sizeof(*dest_addr));
-}
+int establish_connection(int sockfd, struct sockaddr_in *addr) {
+  MyTransportHeader syn_pkt = {0};
+  syn_pkt.flags = FLAG_SYN;
+  syn_pkt.seq = htonl(12345); // First seq
 
-int receive_packet(int socket, Header *header, struct sockaddr_in *src_addr) {
-  socklen_t addr_len = sizeof(*src_addr);
-  ssize_t received_len = recvfrom(socket, header, sizeof(Header), 0,
-                                  (struct sockaddr *)src_addr, &addr_len);
-
-  if (received_len <= 0) {
-    perror("Packet receiving error!");
+  if (sendto(sockfd, &syn_pkt, sizeof(syn_pkt), 0, (struct sockaddr *)addr,
+             sizeof(*addr)) < 0) {
+    perror("Failed to send SYN");
     return -1;
   }
 
-  if (header->checksum != calculate_checksum(header)) {
-    printf("Checksum error!\n");
+  // Wait SYN-ACK
+  MyTransportHeader syn_ack;
+  socklen_t addr_len = sizeof(*addr);
+  if (recvfrom(sockfd, &syn_ack, sizeof(syn_ack), 0, (struct sockaddr *)addr,
+               &addr_len) <= 0) {
+    perror("Failed to receive SYN-ACK");
+    return -1;
+  }
+
+  // Send ACK
+  MyTransportHeader ack_pkt = {0};
+  ack_pkt.flags = FLAG_ACK;
+  ack_pkt.ack = syn_ack.seq + 1;
+
+  if (sendto(sockfd, &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr *)addr,
+             sizeof(*addr)) < 0) {
+    perror("Failed to send ACK");
     return -1;
   }
 
   return 0;
 }
 
-void process_packet(Header *header) {
-  uint32_t seq_number = ntohl(header->seq);
-  uint8_t fragment_number = header->fragment_number;
+int send_reliable_data(int sockfd, struct sockaddr_in *addr, const void *data,
+                       size_t len) {
+  MyTransportHeader pkt = {0};
+  pkt.flags = FLAG_DATA;
+  pkt.seq = htonl(12346); // Number of packet
+  pkt.data_len = htons(len);
+  memcpy(pkt.data, data, len);
+  pkt.checksum = calculate_checksum(&pkt);
 
-  printf("Received packet:\n");
-  printf("  Source Port: %d\n", ntohs(header->source));
-  printf("  Dest Port: %d\n", ntohs(header->dest));
-  printf("  Sequence Number: %d\n", seq_number);
-  printf("  Fragment Number: %d\n", fragment_number);
-  printf("  Data Length: %d\n", ntohs(header->data_length));
-  printf("  Data: %.*s\n", ntohs(header->data_length), header->data);
+  if (sendto(sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)addr,
+             sizeof(*addr)) < 0) {
+    perror("Failed to send data");
+    return -1;
+  }
+
+  // Wait ACK
+  MyTransportHeader ack;
+  socklen_t addr_len = sizeof(*addr);
+  if (recvfrom(sockfd, &ack, sizeof(ack), 0, (struct sockaddr *)addr,
+               &addr_len) <= 0) {
+    perror("Failed to receive ACK");
+    return -1;
+  }
+
+  return 0;
+}
+
+void close_connection(int sockfd, struct sockaddr_in *addr) {
+  MyTransportHeader fin_pkt = {0};
+  fin_pkt.flags = FLAG_FIN;
+
+  sendto(sockfd, &fin_pkt, sizeof(fin_pkt), 0, (struct sockaddr *)addr,
+         sizeof(*addr));
 }
