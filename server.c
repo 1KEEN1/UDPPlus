@@ -41,7 +41,7 @@ int main() {
         uint16_t computed_checksum = calculate_checksum(&pkt);
 
         if (received_checksum != computed_checksum) {
-            printf("Checksum mismatch! (got: 0x%04X, expected: 0x%04X)\n", received_checksum, computed_checksum);
+            printf("Checksum mismatch! (got: 0x%04X, expected: 0x%04X)\n", ntohs(received_checksum), ntohs(computed_checksum));
             continue;
         }
 
@@ -52,7 +52,7 @@ int main() {
             MyTransportHeader syn_ack = {0};
             syn_ack.flags = FLAG_SYN | FLAG_ACK;
             syn_ack.seq = htonl(54321);
-            syn_ack.ack = pkt.seq + 1;
+            syn_ack.ack = ntohl(pkt.seq) + 1;
             syn_ack.enc_type = pkt.enc_type;
             syn_ack.checksum = calculate_checksum(&syn_ack);
 
@@ -72,7 +72,7 @@ int main() {
 
             MyTransportHeader ack = {0};
             ack.flags = FLAG_ACK;
-            ack.ack = pkt.seq + ntohs(pkt.data_len);
+            ack.ack = ntohl(pkt.seq) + ntohs(pkt.data_len);
             ack.checksum = calculate_checksum(&ack);
 
             sendto(sockfd, &ack, sizeof(ack), 0, (struct sockaddr *)&client_addr, addr_len);
