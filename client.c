@@ -7,9 +7,11 @@
 #include <time.h>
 #include <openssl/ssl.h>
 
+#define MAX_FILE_SIZE 1024 * 1024 // 1 MB max file size
+
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        printf("Usage: %s <encryption_type>\n", argv[0]);
+    if (argc != 3) {
+        printf("Usage: %s <encryption_type> <file_path>\n", argv[0]);
         printf("Encryption types:\n");
         printf("0: No encryption\n");
         printf("1: AES-128-CBC\n");
@@ -44,7 +46,36 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    const char *message = "Hello, custom protocol!";
+    // Read file contents
+    FILE *file = fopen(argv[2], "rb");
+    if (!file) {
+        perror("Failed to open file");
+        close(sockfd);
+        return 1;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    if (file_size > MAX_FILE_SIZE) {
+        printf("File is too large\n");
+        fclose(file);
+        close(sockfd);
+        return 1;
+    }
+
+    char *file_contents = malloc(file_size);
+    if (!file_contents) {
+        perror("Failed to allocate memory");
+        fclose(file);
+        close(sockfd);
+        return 1;
+    }
+
+    fread(file_contents, 1, file_size, file);
+    fclose(file);
+
     clock_t start_time = clock();
 
     uint8_t aes_key[AES_KEY_SIZE] = {
@@ -52,10 +83,13 @@ int main(int argc, char *argv[]) {
         0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
     };
 
-    if (send_reliable_data(sockfd, &serv_addr, message, strlen(message), enc_type, aes_key) < 0) {
+    if (send_reliable_data(sockfd, &serv_addr, file_contents, file_size, enc_type, aes_key) < 0) {
+        free(file_contents);
         close(sockfd);
         return 1;
     }
+
+    free(file_contents);
 
     clock_t end_time = clock();
     double time_spent = (double)(end_time - start_time) / CLOCKS_PER_SEC;
