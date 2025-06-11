@@ -6,6 +6,8 @@
 #include <time.h>
 #include <openssl/ssl.h>
 
+#define MAX_FILE_SIZE 1024 * 1024 // 1 MB max file size
+
 int main() {
     // Initialize OpenSSL
     SSL_library_init();
@@ -78,12 +80,8 @@ int main() {
                 xor_encrypt_decrypt(&pkt);
             }
 
-            // Ensure the data is correctly terminated
-            char data_copy[MAX_PACKET_SIZE + 1];
-            memcpy(data_copy, pkt.no_enc.data, ntohs(pkt.data_len));
-            data_copy[ntohs(pkt.data_len)] = '\0';
-
-            printf("Received data: %s\n", data_copy);
+            // Print received data
+            printf("Received data: %.*s\n", ntohs(pkt.data_len), pkt.no_enc.data);
 
             MyTransportHeader ack = {0};
             ack.flags = FLAG_ACK;
