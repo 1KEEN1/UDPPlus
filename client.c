@@ -47,7 +47,11 @@ int main(int argc, char *argv[]) {
     const char *message = "Hello, custom protocol!";
     clock_t start_time = clock();
 
-    uint8_t aes_key[AES_KEY_SIZE] = {0}; // Replace with actual key if needed
+    uint8_t aes_key[AES_KEY_SIZE] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
+    };
+
     if (send_reliable_data(sockfd, &serv_addr, message, strlen(message), enc_type, aes_key) < 0) {
         close(sockfd);
         return 1;
