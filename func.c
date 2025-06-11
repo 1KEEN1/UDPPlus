@@ -1,8 +1,120 @@
 #include "func.h"
 #include <arpa/inet.h>
+#include <openssl/rand.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
+// Initialize crypto
+void crypto_init() {}
+
+// AES-128-CBC Encryption
+int encrypt_aes(MyTransportHeader *pkt, const uint8_t *key) {
+  EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+  if (!ctx)
+    return -1;
+
+  // Generate random IV
+  RAND_bytes(pkt->aes.iv, AES_IV_SIZE);
+
+  if (EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, pkt->aes.iv) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    return -1;
+  }
+
+  int len;
+  int ciphertext_len = 0;
+  uint8_t *data_ptr = pkt->aes.data;
+
+  // Encrypt data
+  if (EVP_EncryptUpdate(ctx, data_ptr, &len, data_ptr, ntohs(pkt->data_len)) !=
+      1) {
+    EVP_CIPHER_CTX_free(ctx);
+    return -1;
+  }
+  ciphertext_len += len;
+
+  // Complete encrypt
+  if (EVP_EncryptFinal_ex(ctx, data_ptr + len, &len) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    return -1;
+  }
+  ciphertext_len += len;
+
+  pkt->data_len = htons(ciphertext_len);
+  EVP_CIPHER_CTX_free(ctx);
+  return 0;
+}
+
+// AES-128-CBC Decryption
+int decrypt_aes(MyTransportHeader *pkt, const uint8_t *key) {
+  EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+  if (!ctx)
+    return -1;
+
+  if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, pkt->aes.iv) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    return -1;
+  }
+
+  int len;
+  int plaintext_len = 0;
+  uint8_t *data_ptr = pkt->aes.data;
+
+  // Decrypt data
+  if (EVP_DecryptUpdate(ctx, data_ptr, &len, data_ptr, ntohs(pkt->data_len)) !=
+      1) {
+    EVP_CIPHER_CTX_free(ctx);
+    return -1;
+  }
+  plaintext_len += len;
+
+  // Complete decrypt
+  if (EVP_DecryptFinal_ex(ctx, data_ptr + len, &len) != 1) {
+    EVP_CIPHER_CTX_free(ctx);
+    return -1;
+  }
+  plaintext_len += len;
+
+  pkt->data_len = htons(plaintext_len);
+  EVP_CIPHER_CTX_free(ctx);
+  return 0;
+}
+
+// XOR Encryption/Decryption
+void xor_encrypt_decrypt(MyTransportHeader *pkt) {
+  for (size_t i = 0; i < ntohs(pkt->data_len); i++) {
+    pkt->no_enc.data[i] ^= xor_key[i % XOR_KEY_SIZE];
+  }
+}
+
+int encrypt_packet(MyTransportHeader *pkt, const uint8_t *aes_key) {
+  switch (pkt->enc_type) {
+  case ENCRYPTION_AES:
+    return encrypt_aes(pkt, aes_key);
+  case ENCRYPTION_XOR:
+    xor_encrypt_decrypt(pkt);
+    return 0;
+  case ENCRYPTION_NONE:
+    return 0;
+  default:
+    return -1;
+  }
+}
+
+int decrypt_packet(MyTransportHeader *pkt, const uint8_t *aes_key) {
+  switch (pkt->enc_type) {
+  case ENCRYPTION_AES:
+    return decrypt_aes(pkt, aes_key);
+  case ENCRYPTION_XOR:
+    xor_encrypt_decrypt(pkt);
+    return 0;
+  case ENCRYPTION_NONE:
+    return 0;
+  default:
+    return -1;
+  }
+}
 
 uint16_t calculate_checksum(const MyTransportHeader *header) {
   uint32_t sum = 0;
