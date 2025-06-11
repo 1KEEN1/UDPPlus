@@ -4,8 +4,14 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <openssl/ssl.h>
 
 int main() {
+    // Initialize OpenSSL
+    SSL_library_init();
+    OpenSSL_add_all_algorithms();
+    SSL_load_error_strings();
+
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         perror("Socket error");
@@ -59,7 +65,7 @@ int main() {
             sendto(sockfd, &syn_ack, sizeof(syn_ack), 0, (struct sockaddr *)&client_addr, addr_len);
         } else if (pkt.flags & FLAG_DATA) {
             if (pkt.enc_type == ENCRYPTION_AES) {
-                uint8_t aes_key[AES_KEY_SIZE] = {0}; // Replace with actual key
+                uint8_t aes_key[AES_KEY_SIZE] = {0}; // Replace with actual key if needed
                 if (decrypt_packet(&pkt, aes_key) != 0) {
                     printf("Failed to decrypt packet\n");
                     continue;
@@ -68,7 +74,12 @@ int main() {
                 xor_encrypt_decrypt(&pkt);
             }
 
-            printf("Received data: %.*s\n", ntohs(pkt.data_len), pkt.no_enc.data);
+            // Ensure the data is correctly terminated
+            char data_copy[MAX_PACKET_SIZE + 1];
+            strncpy(data_copy, (char *)pkt.no_enc.data, ntohs(pkt.data_len));
+            data_copy[ntohs(pkt.data_len)] = '\0';
+
+            printf("Received data: %s\n", data_copy);
 
             MyTransportHeader ack = {0};
             ack.flags = FLAG_ACK;
