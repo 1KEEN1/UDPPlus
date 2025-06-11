@@ -167,7 +167,7 @@ int send_reliable_data(int sockfd, struct sockaddr_in *addr, const void *data, s
     pkt.seq = htonl(12346);
     pkt.data_len = htons(len);
     pkt.enc_type = enc_type;
-    memcpy(pkt.data, data, len);
+    memcpy(pkt.no_enc.data, data, len);
 
     if (enc_type == ENCRYPTION_AES) {
         if (encrypt_packet(&pkt, aes_key) != 0) {
