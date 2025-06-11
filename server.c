@@ -80,7 +80,7 @@ int main() {
 
             // Ensure the data is correctly terminated
             char data_copy[MAX_PACKET_SIZE + 1];
-            strncpy(data_copy, (char *)pkt.no_enc.data, ntohs(pkt.data_len));
+            memcpy(data_copy, pkt.no_enc.data, ntohs(pkt.data_len));
             data_copy[ntohs(pkt.data_len)] = '\0';
 
             printf("Received data: %s\n", data_copy);
