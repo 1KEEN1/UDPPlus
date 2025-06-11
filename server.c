@@ -31,6 +31,11 @@ int main() {
 
     printf("Server started on port %d\n", SERVER_PORT);
 
+    uint8_t aes_key[AES_KEY_SIZE] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
+    };
+
     while (1) {
         MyTransportHeader pkt;
         struct sockaddr_in client_addr;
@@ -65,7 +70,6 @@ int main() {
             sendto(sockfd, &syn_ack, sizeof(syn_ack), 0, (struct sockaddr *)&client_addr, addr_len);
         } else if (pkt.flags & FLAG_DATA) {
             if (pkt.enc_type == ENCRYPTION_AES) {
-                uint8_t aes_key[AES_KEY_SIZE] = {0}; // Replace with actual key if needed
                 if (decrypt_packet(&pkt, aes_key) != 0) {
                     printf("Failed to decrypt packet\n");
                     continue;
