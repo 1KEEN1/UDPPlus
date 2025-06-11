@@ -6,17 +6,17 @@
 #include <time.h>
 #include <openssl/ssl.h>
 
-#define CHUNK_SIZE 1024 // Size of each chunk to receive
+#define CHUNK_SIZE 1024 // Размер каждого передаваемого блока
 
 int main() {
-    // Initialize OpenSSL
+    // Инициализация OpenSSL
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
 
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
-        perror("Socket error");
+        perror("Ошибка создания сокета");
         return 1;
     }
 
@@ -26,12 +26,12 @@ int main() {
     serv_addr.sin_addr.s_addr = INADDR_ANY;
 
     if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("Bind failed");
+        perror("Ошибка привязки сокета");
         close(sockfd);
         return 1;
     }
 
-    printf("Server started on port %d\n", SERVER_PORT);
+    printf("Сервер запущен на порту %d\n", SERVER_PORT);
 
     uint8_t aes_key[AES_KEY_SIZE] = {
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -40,7 +40,7 @@ int main() {
 
     FILE *output_file = fopen("received_file.txt", "wb");
     if (!output_file) {
-        perror("Failed to open output file");
+        perror("Не удалось открыть файл для записи");
         close(sockfd);
         return 1;
     }
@@ -52,7 +52,7 @@ int main() {
 
         ssize_t recv_len = recvfrom(sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)&client_addr, &addr_len);
         if (recv_len <= 0) {
-            perror("recvfrom failed");
+            perror("Ошибка при получении данных");
             continue;
         }
 
@@ -61,14 +61,14 @@ int main() {
         uint16_t computed_checksum = calculate_checksum(&pkt);
 
         if (received_checksum != computed_checksum) {
-            printf("Checksum mismatch! (got: 0x%04X, expected: 0x%04X)\n", ntohs(received_checksum), ntohs(computed_checksum));
+            printf("Несовпадение контрольной суммы! (получено: 0x%04X, ожидалось: 0x%04X)\n", ntohs(received_checksum), ntohs(computed_checksum));
             continue;
         }
 
         pkt.checksum = received_checksum;
 
         if (pkt.flags & FLAG_SYN) {
-            printf("Received SYN, sending SYN-ACK...\n");
+            printf("Получен SYN, отправляю SYN-ACK...\n");
             MyTransportHeader syn_ack = {0};
             syn_ack.flags = FLAG_SYN | FLAG_ACK;
             syn_ack.seq = htonl(54321);
@@ -80,15 +80,18 @@ int main() {
         } else if (pkt.flags & FLAG_DATA) {
             if (pkt.enc_type == ENCRYPTION_AES) {
                 if (decrypt_packet(&pkt, aes_key) != 0) {
-                    printf("Failed to decrypt packet\n");
+                    printf("Не удалось расшифровать пакет\n");
                     continue;
                 }
             } else if (pkt.enc_type == ENCRYPTION_XOR) {
                 xor_encrypt_decrypt(&pkt);
             }
 
+            // Запись данных в файл
             fwrite(pkt.no_enc.data, 1, ntohs(pkt.data_len), output_file);
             fflush(output_file);
+
+            printf("Получен пакет данных размером: %d байт\n", ntohs(pkt.data_len));
 
             MyTransportHeader ack = {0};
             ack.flags = FLAG_ACK;
@@ -97,7 +100,7 @@ int main() {
 
             sendto(sockfd, &ack, sizeof(ack), 0, (struct sockaddr *)&client_addr, addr_len);
         } else if (pkt.flags & FLAG_FIN) {
-            printf("Connection closed by client\n");
+            printf("Соединение закрыто клиентом\n");
             break;
         }
     }
