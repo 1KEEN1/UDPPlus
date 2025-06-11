@@ -115,8 +115,8 @@ uint16_t calculate_checksum(const MyTransportHeader *header) {
     size_t len = sizeof(MyTransportHeader);
 
     for (size_t i = 0; i < len / 2; i++) {
-        if (i == 4) continue; // Skip checksum
-        sum += ptr[i];
+        if (i == 4) continue; // Skip checksum field
+        sum += ntohs(ptr[i]);
     }
 
     if (len % 2) {
@@ -127,7 +127,7 @@ uint16_t calculate_checksum(const MyTransportHeader *header) {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
 
-    return ~(uint16_t)sum;
+    return htons(~sum);
 }
 
 int establish_connection(int sockfd, struct sockaddr_in *addr, int enc_type) {
@@ -135,6 +135,7 @@ int establish_connection(int sockfd, struct sockaddr_in *addr, int enc_type) {
     syn_pkt.flags = FLAG_SYN;
     syn_pkt.seq = htonl(12345);
     syn_pkt.enc_type = enc_type;
+    syn_pkt.checksum = calculate_checksum(&syn_pkt);
 
     if (sendto(sockfd, &syn_pkt, sizeof(syn_pkt), 0, (struct sockaddr *)addr, sizeof(*addr)) < 0) {
         perror("Failed to send SYN");
@@ -148,10 +149,18 @@ int establish_connection(int sockfd, struct sockaddr_in *addr, int enc_type) {
         return -1;
     }
 
+    uint16_t received_checksum = syn_ack.checksum;
+    syn_ack.checksum = 0;
+    if (received_checksum != calculate_checksum(&syn_ack)) {
+        printf("SYN-ACK checksum mismatch!\n");
+        return -1;
+    }
+
     MyTransportHeader ack_pkt = {0};
     ack_pkt.flags = FLAG_ACK;
     ack_pkt.ack = syn_ack.seq + 1;
     ack_pkt.enc_type = enc_type;
+    ack_pkt.checksum = calculate_checksum(&ack_pkt);
 
     if (sendto(sockfd, &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr *)addr, sizeof(*addr)) < 0) {
         perror("Failed to send ACK");
@@ -192,12 +201,20 @@ int send_reliable_data(int sockfd, struct sockaddr_in *addr, const void *data, s
         return -1;
     }
 
+    uint16_t received_checksum = ack.checksum;
+    ack.checksum = 0;
+    if (received_checksum != calculate_checksum(&ack)) {
+        printf("ACK checksum mismatch!\n");
+        return -1;
+    }
+
     return 0;
 }
 
 void close_connection(int sockfd, struct sockaddr_in *addr) {
     MyTransportHeader fin_pkt = {0};
     fin_pkt.flags = FLAG_FIN;
+    fin_pkt.checksum = calculate_checksum(&fin_pkt);
 
     sendto(sockfd, &fin_pkt, sizeof(fin_pkt), 0, (struct sockaddr *)addr, sizeof(*addr));
 }
