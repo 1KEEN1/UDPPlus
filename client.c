@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <openssl/ssl.h>
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -21,6 +22,11 @@ int main(int argc, char *argv[]) {
         printf("Invalid encryption type\n");
         return 1;
     }
+
+    // Initialize OpenSSL
+    SSL_library_init();
+    OpenSSL_add_all_algorithms();
+    SSL_load_error_strings();
 
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
@@ -41,7 +47,8 @@ int main(int argc, char *argv[]) {
     const char *message = "Hello, custom protocol!";
     clock_t start_time = clock();
 
-    if (send_reliable_data(sockfd, &serv_addr, message, strlen(message), enc_type, NULL) < 0) {
+    uint8_t aes_key[AES_KEY_SIZE] = {0}; // Replace with actual key if needed
+    if (send_reliable_data(sockfd, &serv_addr, message, strlen(message), enc_type, aes_key) < 0) {
         close(sockfd);
         return 1;
     }
