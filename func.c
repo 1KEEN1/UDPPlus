@@ -4,10 +4,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <openssl/ssl.h>
 
 // Initialize crypto
 void crypto_init() {
+    SSL_library_init();
     OpenSSL_add_all_algorithms();
+    SSL_load_error_strings();
 }
 
 // AES-128-CBC Encryption
@@ -26,7 +29,7 @@ int encrypt_aes(MyTransportHeader *pkt, const uint8_t *key) {
     int ciphertext_len = 0;
     uint8_t *data_ptr = pkt->aes.data;
 
-    if (EVP_EncryptUpdate(ctx, data_ptr, &len, data_ptr, ntohs(pkt->data_len)) != 1) {
+    if (EVP_EncryptUpdate(ctx, data_ptr, &len, pkt->no_enc.data, ntohs(pkt->data_len)) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return -1;
     }
