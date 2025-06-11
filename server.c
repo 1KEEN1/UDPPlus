@@ -6,7 +6,7 @@
 #include <time.h>
 #include <openssl/ssl.h>
 
-#define MAX_FILE_SIZE 1024 * 1024 // 1 MB max file size
+#define CHUNK_SIZE 1024 // Size of each chunk to receive
 
 int main() {
     // Initialize OpenSSL
@@ -37,6 +37,13 @@ int main() {
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
         0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
     };
+
+    FILE *output_file = fopen("received_file.txt", "wb");
+    if (!output_file) {
+        perror("Failed to open output file");
+        close(sockfd);
+        return 1;
+    }
 
     while (1) {
         MyTransportHeader pkt;
@@ -80,8 +87,8 @@ int main() {
                 xor_encrypt_decrypt(&pkt);
             }
 
-            // Print received data
-            printf("Received data: %.*s\n", ntohs(pkt.data_len), pkt.no_enc.data);
+            fwrite(pkt.no_enc.data, 1, ntohs(pkt.data_len), output_file);
+            fflush(output_file);
 
             MyTransportHeader ack = {0};
             ack.flags = FLAG_ACK;
@@ -91,9 +98,11 @@ int main() {
             sendto(sockfd, &ack, sizeof(ack), 0, (struct sockaddr *)&client_addr, addr_len);
         } else if (pkt.flags & FLAG_FIN) {
             printf("Connection closed by client\n");
+            break;
         }
     }
 
+    fclose(output_file);
     close(sockfd);
     return 0;
 }
