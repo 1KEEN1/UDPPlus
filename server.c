@@ -68,7 +68,7 @@ int main() {
                 xor_encrypt_decrypt(&pkt);
             }
 
-            printf("Received data: %.*s\n", ntohs(pkt.data_len), pkt.data);
+            printf("Received data: %.*s\n", ntohs(pkt.data_len), pkt.no_enc.data);
 
             MyTransportHeader ack = {0};
             ack.flags = FLAG_ACK;
