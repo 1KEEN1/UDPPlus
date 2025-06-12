@@ -5,16 +5,17 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
+#include <openssl/ssl.h>
 
-#define WINDOW_SIZE 32
-#define CHUNK_SIZE (1400 - sizeof(MyTransportHeader)) // Безопасный размер
+#define CHUNK_SIZE 1400 // Оптимальный размер блока
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
-        printf("Usage: %s <0|1|2> <file_path>\n", argv[0]);
+        printf("Usage: %s <encryption_type> <file_path>\n", argv[0]);
+        printf("Encryption types:\n");
+        printf("0: No encryption\n");
+        printf("1: AES-128-CBC\n");
+        printf("2: XOR\n");
         return 1;
     }
 
@@ -24,84 +25,57 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    struct timeval tv = {.tv_usec = 100000};
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    // Инициализация OpenSSL
+    SSL_library_init();
+    OpenSSL_add_all_algorithms();
+    SSL_load_error_strings();
 
-    struct sockaddr_in serv_addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(SERVER_PORT),
-        .sin_addr.s_addr = inet_addr("127.0.0.1")
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        perror("Socket error");
+        return 1;
+    }
+
+    struct sockaddr_in serv_addr = {0};
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(SERVER_PORT);
+    serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    if (establish_connection(sockfd, &serv_addr, enc_type) < 0) {
+        close(sockfd);
+        return 1;
+    }
+
+    FILE *file = fopen(argv[2], "rb");
+    if (!file) {
+        perror("Failed to open file");
+        close(sockfd);
+        return 1;
+    }
+
+    uint8_t aes_key[AES_KEY_SIZE] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
     };
 
-    int fd = open(argv[2], O_RDONLY);
-    struct stat st;
-    fstat(fd, &st);
-    size_t file_size = st.st_size;
-    char *file_data = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    char buffer[CHUNK_SIZE];
+    size_t bytes_read;
+    clock_t start_time = clock();
 
-    uint8_t aes_key[AES_KEY_SIZE] = {0}; // В реальном коде используйте настоящий ключ
-
-    struct timespec start, end;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-
-    size_t base = 0;
-    size_t next_seq = 0;
-    size_t last_seq = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
-
-    while (base < last_seq) {
-        while (next_seq < base + WINDOW_SIZE && next_seq < last_seq) {
-            size_t offset = next_seq * CHUNK_SIZE;
-            size_t chunk_size = (next_seq == last_seq - 1) ? 
-                file_size - offset : CHUNK_SIZE;
-
-            // Проверка переполнения буфера
-            if (chunk_size > MAX_PACKET_SIZE - sizeof(MyTransportHeader)) {
-                fprintf(stderr, "Chunk size too large\n");
-                break;
-            }
-
-            MyTransportHeader pkt = {0};
-            pkt.flags = FLAG_DATA;
-            pkt.seq = htonl(next_seq);
-            pkt.enc_type = enc_type;
-            pkt.data_len = htons(chunk_size);
-            
-            memcpy(pkt.no_enc.data, file_data + offset, chunk_size);
-
-            if (enc_type == ENCRYPTION_AES) {
-                if (encrypt_packet(&pkt, aes_key) < 0) break;
-            } 
-            else if (enc_type == ENCRYPTION_XOR) {
-                xor_encrypt_decrypt(&pkt);
-            }
-
-            sendto(sockfd, &pkt, sizeof(pkt), 0, 
-                  (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-            
-            next_seq++;
-        }
-
-        MyTransportHeader ack;
-        socklen_t addr_len = sizeof(serv_addr);
-        if (recvfrom(sockfd, &ack, sizeof(ack), 0, 
-                    (struct sockaddr *)&serv_addr, &addr_len) > 0) {
-            if (ack.flags & FLAG_ACK) {
-                uint32_t ack_seq = ntohl(ack.ack);
-                if (ack_seq > base) base = ack_seq;
-            }
+    while ((bytes_read = fread(buffer, 1, CHUNK_SIZE, file)) > 0) {
+        if (send_reliable_data(sockfd, &serv_addr, buffer, bytes_read, enc_type, aes_key) < 0) {
+            fclose(file);
+            close(sockfd);
+            return 1;
         }
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    double time_taken = (end.tv_sec - start.tv_sec) + 
-                       (end.tv_nsec - start.tv_nsec) / 1e9;
-    
-    printf("Transfer completed in %.3f seconds (%.2f MB/s)\n", 
-           time_taken, (file_size / (1024.0 * 1024.0)) / time_taken);
+    fclose(file);
+    clock_t end_time = clock();
+    double time_spent = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+    printf("Data transfer time: %f seconds\n", time_spent);
 
-    munmap(file_data, file_size);
-    close(fd);
+    close_connection(sockfd, &serv_addr);
     close(sockfd);
     return 0;
 }
