@@ -7,7 +7,7 @@
 #include <time.h>
 #include <openssl/ssl.h>
 
-#define CHUNK_SIZE 1024 // Size of each chunk to send
+#define CHUNK_SIZE 1400 // Размер каждого передаваемого блока
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Initialize OpenSSL
+    // Инициализация OpenSSL
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
@@ -46,7 +46,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Open the file for reading
     FILE *file = fopen(argv[2], "rb");
     if (!file) {
         perror("Failed to open file");
@@ -54,20 +53,15 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Get file size
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
     uint8_t aes_key[AES_KEY_SIZE] = {
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
         0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
     };
 
-    clock_t start_time = clock();
-
     char buffer[CHUNK_SIZE];
     size_t bytes_read;
+    clock_t start_time = clock();
+
     while ((bytes_read = fread(buffer, 1, CHUNK_SIZE, file)) > 0) {
         if (send_reliable_data(sockfd, &serv_addr, buffer, bytes_read, enc_type, aes_key) < 0) {
             fclose(file);
@@ -77,7 +71,6 @@ int main(int argc, char *argv[]) {
     }
 
     fclose(file);
-
     clock_t end_time = clock();
     double time_spent = (double)(end_time - start_time) / CLOCKS_PER_SEC;
     printf("Data transfer time: %f seconds\n", time_spent);
