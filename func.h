@@ -3,6 +3,10 @@
 
 #include "header.h"
 
+#define WINDOW_SIZE 32
+#define CHUNK_SIZE (64 * 1024)
+#define SOCKET_BUF_SIZE (1024 * 1024)
+
 // Initialize crypto
 void crypto_init();
 
