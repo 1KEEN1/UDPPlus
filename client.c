@@ -7,7 +7,7 @@
 #include <time.h>
 #include <openssl/ssl.h>
 
-#define CHUNK_SIZE 8192 // Увеличенный размер блока
+#define CHUNK_SIZE 1400 // Оптимальный размер блока
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -25,6 +25,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Инициализация OpenSSL
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
@@ -38,11 +39,7 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serv_addr = {0};
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT);
-    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
-        perror("Invalid address");
-        close(sockfd);
-        return 1;
-    }
+    serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     if (establish_connection(sockfd, &serv_addr, enc_type) < 0) {
         close(sockfd);
