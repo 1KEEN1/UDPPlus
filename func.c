@@ -1,16 +1,11 @@
 #include "func.h"
-#include <arpa/inet.h>
+#include <openssl/evp.h>
 #include <openssl/rand.h>
-#include <stdio.h>
 #include <string.h>
-#include <time.h>
-#include <openssl/ssl.h>
 
-// Initialize crypto
+// Initialize crypto (dummy for XOR)
 void crypto_init() {
-    SSL_library_init();
-    OpenSSL_add_all_algorithms();
-    SSL_load_error_strings();
+    // Only needed for AES
 }
 
 // AES-128-CBC Encryption
@@ -26,22 +21,18 @@ int encrypt_aes(MyTransportHeader *pkt, const uint8_t *key) {
     }
 
     int len;
-    int ciphertext_len = 0;
-    uint8_t *data_ptr = pkt->aes.data;
-
-    if (EVP_EncryptUpdate(ctx, data_ptr, &len, pkt->no_enc.data, ntohs(pkt->data_len)) != 1) {
+    if (EVP_EncryptUpdate(ctx, pkt->aes.data, &len, pkt->no_enc.data, ntohs(pkt->data_len)) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return -1;
     }
-    ciphertext_len += len;
 
-    if (EVP_EncryptFinal_ex(ctx, data_ptr + len, &len) != 1) {
+    int final_len;
+    if (EVP_EncryptFinal_ex(ctx, pkt->aes.data + len, &final_len) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return -1;
     }
-    ciphertext_len += len;
 
-    pkt->data_len = htons(ciphertext_len);
+    pkt->data_len = htons(len + final_len);
     EVP_CIPHER_CTX_free(ctx);
     return 0;
 }
@@ -57,22 +48,18 @@ int decrypt_aes(MyTransportHeader *pkt, const uint8_t *key) {
     }
 
     int len;
-    int plaintext_len = 0;
-    uint8_t *data_ptr = pkt->aes.data;
-
-    if (EVP_DecryptUpdate(ctx, data_ptr, &len, data_ptr, ntohs(pkt->data_len)) != 1) {
+    if (EVP_DecryptUpdate(ctx, pkt->no_enc.data, &len, pkt->aes.data, ntohs(pkt->data_len)) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return -1;
     }
-    plaintext_len += len;
 
-    if (EVP_DecryptFinal_ex(ctx, data_ptr + len, &len) != 1) {
+    int final_len;
+    if (EVP_DecryptFinal_ex(ctx, pkt->no_enc.data + len, &final_len) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         return -1;
     }
-    plaintext_len += len;
 
-    pkt->data_len = htons(plaintext_len);
+    pkt->data_len = htons(len + final_len);
     EVP_CIPHER_CTX_free(ctx);
     return 0;
 }
@@ -84,6 +71,7 @@ void xor_encrypt_decrypt(MyTransportHeader *pkt) {
     }
 }
 
+// Main encryption function
 int encrypt_packet(MyTransportHeader *pkt, const uint8_t *aes_key) {
     switch (pkt->enc_type) {
         case ENCRYPTION_AES:
@@ -98,6 +86,7 @@ int encrypt_packet(MyTransportHeader *pkt, const uint8_t *aes_key) {
     }
 }
 
+// Main decryption function
 int decrypt_packet(MyTransportHeader *pkt, const uint8_t *aes_key) {
     switch (pkt->enc_type) {
         case ENCRYPTION_AES:
@@ -112,6 +101,7 @@ int decrypt_packet(MyTransportHeader *pkt, const uint8_t *aes_key) {
     }
 }
 
+// Checksum calculation
 uint16_t calculate_checksum(const MyTransportHeader *header) {
     uint32_t sum = 0;
     const uint16_t *ptr = (const uint16_t *)header;
@@ -131,93 +121,4 @@ uint16_t calculate_checksum(const MyTransportHeader *header) {
     }
 
     return htons(~sum);
-}
-
-int establish_connection(int sockfd, struct sockaddr_in *addr, int enc_type) {
-    MyTransportHeader syn_pkt = {0};
-    syn_pkt.flags = FLAG_SYN;
-    syn_pkt.seq = htonl(12345);
-    syn_pkt.enc_type = enc_type;
-    syn_pkt.checksum = calculate_checksum(&syn_pkt);
-
-    if (sendto(sockfd, &syn_pkt, sizeof(syn_pkt), 0, (struct sockaddr *)addr, sizeof(*addr)) < 0) {
-        perror("Failed to send SYN");
-        return -1;
-    }
-
-    MyTransportHeader syn_ack;
-    socklen_t addr_len = sizeof(*addr);
-    if (recvfrom(sockfd, &syn_ack, sizeof(syn_ack), 0, (struct sockaddr *)addr, &addr_len) <= 0) {
-        perror("Failed to receive SYN-ACK");
-        return -1;
-    }
-
-    uint16_t received_checksum = syn_ack.checksum;
-    syn_ack.checksum = 0;
-    if (received_checksum != calculate_checksum(&syn_ack)) {
-        printf("SYN-ACK checksum mismatch!\n");
-        return -1;
-    }
-
-    MyTransportHeader ack_pkt = {0};
-    ack_pkt.flags = FLAG_ACK;
-    ack_pkt.ack = syn_ack.seq + 1;
-    ack_pkt.enc_type = enc_type;
-    ack_pkt.checksum = calculate_checksum(&ack_pkt);
-
-    if (sendto(sockfd, &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr *)addr, sizeof(*addr)) < 0) {
-        perror("Failed to send ACK");
-        return -1;
-    }
-
-    return 0;
-}
-
-int send_reliable_data(int sockfd, struct sockaddr_in *addr, const void *data, size_t len, int enc_type, const uint8_t *aes_key) {
-    MyTransportHeader pkt = {0};
-    pkt.flags = FLAG_DATA;
-    pkt.seq = htonl(12346);
-    pkt.data_len = htons(len);
-    pkt.enc_type = enc_type;
-    memcpy(pkt.no_enc.data, data, len);
-
-    if (enc_type == ENCRYPTION_AES) {
-        if (encrypt_packet(&pkt, aes_key) != 0) {
-            perror("Failed to encrypt packet");
-            return -1;
-        }
-    } else if (enc_type == ENCRYPTION_XOR) {
-        xor_encrypt_decrypt(&pkt);
-    }
-
-    pkt.checksum = calculate_checksum(&pkt);
-
-    if (sendto(sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)addr, sizeof(*addr)) < 0) {
-        perror("Failed to send data");
-        return -1;
-    }
-
-    MyTransportHeader ack;
-    socklen_t addr_len = sizeof(*addr);
-    if (recvfrom(sockfd, &ack, sizeof(ack), 0, (struct sockaddr *)addr, &addr_len) <= 0) {
-        perror("Failed to receive ACK");
-        return -1;
-    }
-
-    uint16_t received_checksum = ack.checksum;
-    ack.checksum = 0;
-    if (received_checksum != calculate_checksum(&ack)) {
-        printf("ACK checksum mismatch!\n");
-        return -1;
-    }
-
-    return 0;
-}
-
-void close_connection(int sockfd, struct sockaddr_in *addr) {
-    MyTransportHeader fin_pkt = {0};
-    fin_pkt.flags = FLAG_FIN;
-    fin_pkt.checksum = calculate_checksum(&fin_pkt);
-
-    sendto(sockfd, &fin_pkt, sizeof(fin_pkt), 0, (struct sockaddr *)addr, sizeof(*addr));
 }
