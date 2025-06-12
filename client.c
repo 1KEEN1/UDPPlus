@@ -10,14 +10,11 @@
 #include <sys/stat.h>
 
 #define WINDOW_SIZE 32
-#define CHUNK_SIZE (16 * 1024) // 16KB chunks
+#define CHUNK_SIZE (1400 - sizeof(MyTransportHeader)) // Безопасный размер
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         printf("Usage: %s <0|1|2> <file_path>\n", argv[0]);
-        printf("0: No encryption\n");
-        printf("1: AES-128-CBC\n");
-        printf("2: XOR\n");
         return 1;
     }
 
@@ -27,46 +24,24 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Initialize socket with timeout
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 100000; // 100ms timeout
+    struct timeval tv = {.tv_usec = 100000};
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    // Server address setup
     struct sockaddr_in serv_addr = {
         .sin_family = AF_INET,
         .sin_port = htons(SERVER_PORT),
         .sin_addr.s_addr = inet_addr("127.0.0.1")
     };
 
-    // Open and map file
     int fd = open(argv[2], O_RDONLY);
-    if (fd < 0) {
-        perror("File open failed");
-        close(sockfd);
-        return 1;
-    }
-
     struct stat st;
     fstat(fd, &st);
     size_t file_size = st.st_size;
     char *file_data = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (file_data == MAP_FAILED) {
-        perror("mmap failed");
-        close(fd);
-        close(sockfd);
-        return 1;
-    }
 
-    // AES key (in real use, should be properly initialized)
-    uint8_t aes_key[AES_KEY_SIZE] = {
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
-    };
+    uint8_t aes_key[AES_KEY_SIZE] = {0}; // В реальном коде используйте настоящий ключ
 
-    // Start transfer
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
@@ -75,11 +50,16 @@ int main(int argc, char *argv[]) {
     size_t last_seq = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
     while (base < last_seq) {
-        // Send packets in window
         while (next_seq < base + WINDOW_SIZE && next_seq < last_seq) {
             size_t offset = next_seq * CHUNK_SIZE;
             size_t chunk_size = (next_seq == last_seq - 1) ? 
                 file_size - offset : CHUNK_SIZE;
+
+            // Проверка переполнения буфера
+            if (chunk_size > MAX_PACKET_SIZE - sizeof(MyTransportHeader)) {
+                fprintf(stderr, "Chunk size too large\n");
+                break;
+            }
 
             MyTransportHeader pkt = {0};
             pkt.flags = FLAG_DATA;
@@ -90,11 +70,9 @@ int main(int argc, char *argv[]) {
             memcpy(pkt.no_enc.data, file_data + offset, chunk_size);
 
             if (enc_type == ENCRYPTION_AES) {
-                if (encrypt_packet(&pkt, aes_key) < 0) {
-                    fprintf(stderr, "Encryption failed\n");
-                    break;
-                }
-            } else if (enc_type == ENCRYPTION_XOR) {
+                if (encrypt_packet(&pkt, aes_key) < 0) break;
+            } 
+            else if (enc_type == ENCRYPTION_XOR) {
                 xor_encrypt_decrypt(&pkt);
             }
 
@@ -104,16 +82,13 @@ int main(int argc, char *argv[]) {
             next_seq++;
         }
 
-        // Receive ACKs
         MyTransportHeader ack;
         socklen_t addr_len = sizeof(serv_addr);
         if (recvfrom(sockfd, &ack, sizeof(ack), 0, 
                     (struct sockaddr *)&serv_addr, &addr_len) > 0) {
             if (ack.flags & FLAG_ACK) {
                 uint32_t ack_seq = ntohl(ack.ack);
-                if (ack_seq > base) {
-                    base = ack_seq;
-                }
+                if (ack_seq > base) base = ack_seq;
             }
         }
     }
@@ -125,7 +100,6 @@ int main(int argc, char *argv[]) {
     printf("Transfer completed in %.3f seconds (%.2f MB/s)\n", 
            time_taken, (file_size / (1024.0 * 1024.0)) / time_taken);
 
-    // Cleanup
     munmap(file_data, file_size);
     close(fd);
     close(sockfd);
