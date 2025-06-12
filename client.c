@@ -38,7 +38,11 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serv_addr = {0};
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT);
-    serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+        perror("Invalid address");
+        close(sockfd);
+        return 1;
+    }
 
     if (establish_connection(sockfd, &serv_addr, enc_type) < 0) {
         close(sockfd);
