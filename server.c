@@ -6,10 +6,9 @@
 #include <time.h>
 #include <openssl/ssl.h>
 
-#define CHUNK_SIZE 1400 // Оптимальный размер блока
+#define CHUNK_SIZE 8192 // Увеличенный размер блока
 
 int main() {
-    // Инициализация OpenSSL
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
